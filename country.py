@@ -6,6 +6,7 @@ from langchain_core.output_parsers import StrOutputParser
 from data_self_generate import data_generation, data_generation2
 from out_put_parser import parser
 from prompt_repo import prompt_country, prompt_bidvalue, prompt_gender
+from langchain_core.runnables import RunnableParallel
 
 parser_out = parser()
 llm_model = ChatGroq(model="gemma2-9b-it")
@@ -20,16 +21,26 @@ def template_promt_generation(promt):
 
 ### country
 country_chains = template_promt_generation(promt= prompt_country)
-print(country_chains.invoke({"data" : data,
-                    "your_column_input" : "country",
-                    }))
 ### bid value
-bodvalue_chains =template_promt_generation(promt= prompt_bidvalue)
-print(bodvalue_chains.invoke({"data" : data,
-                    "your_column_input" : "Bid_Raw",
-                    "sub_colmn" : "bid value"}))
-
+bidvalue_chains =template_promt_generation(promt= prompt_bidvalue)
+### gender
 gender_chains =template_promt_generation(promt= prompt_gender)
-print(gender_chains.invoke({"data" : data,
-                    "your_column_input" : "Raw_Data",
-                    "sub_colmn" : "gender"}))
+
+## combine_chain
+combine_chains = RunnableParallel(country = country_chains, bid_value = bidvalue_chains, gender = gender_chains)
+
+result = combine_chains.invoke({"data" : data,
+                    "your_column_input" : "country",
+                    ## for bid
+                    "main_col" : "Bid_Raw",
+                    "sub_colmn" : "bid value",
+                    ## for gender
+                     "yr_col" : "Raw_Data",
+                    "sub_item" : "gender"
+                    })
+
+print(result['country']['result'])
+print('\n\n')
+print(result['bid_value']['result'])
+print('\n\n')
+print(result['gender']['result'])
