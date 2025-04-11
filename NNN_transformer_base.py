@@ -576,7 +576,31 @@ attn_df["Normalized"] = attn_df["AttentionWeight"] / attn_df["AttentionWeight"].
 print(attn_df)
 
 # %%
+Interpretation
+These attention weights show how much each channel influenced the prediction on that date and geo. For example:
 
+A high weight on channel 3 in France on Jan 20th → model thinks channel 3 is key that day.
+
+You can extract top-N channels per day and plot trends over time to see shifting media impact.
+
+Would you like help with:
+
+Aggregating top contributing channels across time/geo?
+
+Plotting attention heatmaps over time?
+
+Using channel metadata (like video vs. static creative) to enhance interpretability?
+
+Let me know how you want to go deeper 🙌
+
+# %% [markdown]
+# Interpretation
+# These attention weights show how much each channel influenced the prediction on that date and geo. For example:
+# 
+# A high weight on channel 3 in France on Jan 20th → model thinks channel 3 is key that day.
+# 
+# You can extract top-N channels per day and plot trends over time to see shifting media impact.
+# 
 
 # %%
 # Assuming these are defined:
@@ -633,6 +657,282 @@ for b in range(preds_np.shape[0]):
 
 df_preds = pd.DataFrame(rows)
 print(df_preds.head())
+
+# %%
+## predict transition point;
+# Sample shape: (1 geo/platform, T=10 days, 51 channels, 5 features)
+# Just faking an array to show the logic
+preds_np = np.random.rand(1, 10, 51, 5) * 100  # shape: (B, T, C, F)
+
+output_features = ["spend", "revenue", "clicks", "impressions", "installs"]
+
+# Feature indices
+spend_idx = output_features.index("spend")
+revenue_idx = output_features.index("revenue")
+
+transition_points = []
+
+for c in range(preds_np.shape[2]):  # over channels
+    profit = preds_np[0, :, c, revenue_idx] - preds_np[0, :, c, spend_idx]
+    transition_day = np.argmax(profit > 0) if np.any(profit > 0) else -1
+    transition_points.append(
+        {
+            "Channel": f"channel_{c}",
+            "TransitionDay": transition_day,
+            "ROI": profit[transition_day] if transition_day != -1 else None,
+        }
+    )
+
+transition_df = pd.DataFrame(transition_points)
+print(transition_df.head())
+
+# %%
+# plot the revenue vs spend for some channels:
+
+import matplotlib.pyplot as plt
+
+channel_idx = 0
+days = np.arange(preds_np.shape[1])
+
+revenue = preds_np[0, :, channel_idx, revenue_idx]
+spend = preds_np[0, :, channel_idx, spend_idx]
+
+plt.plot(days, revenue, label="Revenue")
+plt.plot(days, spend, label="Spend")
+plt.title(f"Channel {channel_idx}")
+plt.xlabel("Day")
+plt.ylabel("Value")
+plt.legend()
+plt.show()
+
+# %%
+import numpy as np
+import pandas as pd
+
+# Feature indices
+output_features = ["spend", "revenue", "clicks", "impressions", "installs"]
+spend_idx = output_features.index("spend")
+revenue_idx = output_features.index("revenue")
+
+# Replace this with your actual predictions
+# preds_np shape: (B, T, C, F)
+# Example: (1 geo/platform, 10 days, 51 channels, 5 features)
+B, T, C, F = preds_np.shape
+
+results = []
+
+for b in range(B):
+    for c in range(C):
+        spend = preds_np[b, :, c, spend_idx]
+        revenue = preds_np[b, :, c, revenue_idx]
+
+        cum_spend = np.cumsum(spend)
+        cum_revenue = np.cumsum(revenue)
+
+        transition_day = (
+            np.argmax(cum_revenue > cum_spend)
+            if np.any(cum_revenue > cum_spend)
+            else -1
+        )
+
+        results.append(
+            {
+                "Geo": geo_names[b] if "geo_names" in locals() else f"geo_{b}",
+                "Platform": (
+                    platform_names[b]
+                    if "platform_names" in locals()
+                    else f"platform_{b}"
+                ),
+                "Channel": (
+                    channel_names[c] if len(channel_names) == C else f"channel_{c}"
+                ),
+                "TransitionDay": transition_day,
+                "FinalCumulativeRevenue": cum_revenue[-1],
+                "FinalCumulativeSpend": cum_spend[-1],
+                "ROI": (
+                    (cum_revenue[-1] - cum_spend[-1]) / cum_spend[-1]
+                    if cum_spend[-1] != 0
+                    else np.nan
+                ),
+            }
+        )
+
+transition_df = pd.DataFrame(results)
+transition_df = transition_df.sort_values(by="TransitionDay").reset_index(drop=True)
+print(transition_df.head())
+
+# %%
+channel_idx = 0
+days = np.arange(T)
+spend = preds_np[0, :, channel_idx, spend_idx]
+revenue = preds_np[0, :, channel_idx, revenue_idx]
+
+plt.plot(days, np.cumsum(spend), label="Cumulative Spend")
+plt.plot(days, np.cumsum(revenue), label="Cumulative Revenue")
+plt.axvline(
+    transition_df.loc[channel_idx, "TransitionDay"],
+    color="red",
+    linestyle="--",
+    label="Transition",
+)
+plt.title(f"Channel {channel_idx}")
+plt.xlabel("Day")
+plt.ylabel("Cumulative Value")
+plt.legend()
+plt.show()
+
+# %%
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Step 1: Prepare your last 3-day input ---
+# Shape: (batch, time_steps=3, channels=1, features=5)
+input_data = np.random.rand(1, 3, 1, 5).astype(np.float32)
+
+# --- Step 2: Use your already-built model ---
+# If the model is already defined as `model`, just use it
+# Else uncomment the following (example dummy transformer model for context)
+# model = tf.keras.Sequential([
+#     tf.keras.layers.Input(shape=(None, 1, 5)),
+#     tf.keras.layers.Conv2D(32, kernel_size=(1, 1), activation='relu'),
+#     tf.keras.layers.GlobalAveragePooling2D(),
+#     tf.keras.layers.Dense(5)
+# ])
+
+# --- Step 3: Predict step-by-step ---
+n_future_days = 27
+current_input = tf.convert_to_tensor(input_data)
+predictions = []
+
+for _ in range(n_future_days):
+    pred = model(current_input, training=False)  # shape: (1, 3, 5)
+    print("Prediction shape:", pred.shape)
+
+    # Grab just the first predicted time step (shape: (1, 5))
+    next_step = pred[:, 0, :]  # shape: (1, 5)
+
+    # Reshape to match input format: (batch, time=1, channel=1, features)
+    next_step = tf.reshape(next_step, (1, 1, 1, 5))
+
+    # Append to input sequence
+    current_input = tf.concat([current_input, next_step], axis=1)
+
+    # Keep only last 3 time steps
+    current_input = current_input[:, -3:, :, :]  # shape: (1, 3, 1, 5)
+
+    # Collect predictions
+    predictions.append(next_step.numpy())
+
+# --- Step 4: Stack and plot ---
+pred_stack = np.concatenate(predictions, axis=0).squeeze()  # shape: (27, 5)
+
+# Plot the predicted features
+plt.figure(figsize=(12, 6))
+labels = ["spend", "revenue", "clicks", "impressions", "installs"]
+for i in range(5):
+    plt.plot(pred_stack[:, i], label=labels[i])
+plt.title("Predicted Features Over Next 27 Days")
+plt.xlabel("Day")
+plt.ylabel("Value")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# %%
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Convert predictions list to array of shape (n_future_days, 1, 1, 5)
+predictions_array = np.concatenate(predictions, axis=1).squeeze()  # shape: (n_days, 5)
+
+# Extract relevant features
+revenue = predictions_array[:, 0]
+spend = predictions_array[:, 1]
+dayback = np.arange(len(revenue))
+
+# Separate input and forecasted parts
+input_days = np.arange(3)
+pred_days = np.arange(3, len(revenue))
+
+# Plotting
+plt.figure(figsize=(10, 6))
+
+# Revenue
+plt.plot(input_days, revenue[:3], label="Revenue (Input)", color="blue", linestyle="-")
+plt.plot(
+    pred_days, revenue[3:], label="Revenue (Predicted)", color="blue", linestyle="--"
+)
+
+# Spend
+plt.plot(input_days, spend[:3], label="Spend (Input)", color="green", linestyle="-")
+plt.plot(pred_days, spend[3:], label="Spend (Predicted)", color="green", linestyle="--")
+
+plt.xlabel("Dayback")
+plt.ylabel("Amount")
+plt.title("Revenue and Spend Over Forecasted Days")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# %%
+
+
+# %%
+
+
+# %%
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Convert predictions list to array of shape (n_days, 5)
+predictions_array = np.concatenate(predictions, axis=1).squeeze()  # shape: (n_days, 5)
+
+# Extract relevant features
+revenue = predictions_array[:, 0]
+spend = predictions_array[:, 1]
+dayback = np.arange(len(revenue))
+
+# Separate input (first 3) and predicted (rest)
+input_days = dayback[:3]
+pred_days = dayback[3:]
+
+# Plotting
+plt.figure(figsize=(10, 6))
+
+# Revenue
+plt.plot(input_days, revenue[:3], label="Spend (Input)", color="blue", linestyle="-")
+plt.plot(
+    pred_days, revenue[3:], label="Spend (Predicted)", color="blue", linestyle="--"
+)
+plt.plot(
+    [input_days[-1], pred_days[0]],
+    [revenue[2], revenue[3]],
+    color="blue",
+    linestyle="--",
+)  # connect line
+
+# Spend
+plt.plot(input_days, spend[:3], label="Revenue (Input)", color="green", linestyle="-")
+plt.plot(
+    pred_days, spend[3:], label="Revenue (Predicted)", color="green", linestyle="--"
+)
+plt.plot(
+    [input_days[-1], pred_days[0]], [spend[2], spend[3]], color="green", linestyle="--"
+)  # connect line
+
+# Vertical red line to show prediction start
+plt.axvline(x=input_days[-1], color="red", linestyle=":", label="Prediction Start")
+
+plt.xlabel("Next days")
+plt.ylabel("Amount")
+plt.title("Revenue and Spend Over Forecasted Days")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
 # %%
 
